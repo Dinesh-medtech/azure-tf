@@ -1,11 +1,27 @@
+variable "AksClusterName" {
+  description = "Name of the AKS cluster"
+  type        = string
+}
+
+variable "AzureDefaultRegion" {
+  description = "Azure region"
+  type        = string
+}
+
+variable "AZURE_RESOURCE_GROUP" 
+{
+  description = "Azure resource group name"
+  type        = string
+}
+
 provider "azurerm" {
   features {}
 }
 
 # Resource Group
 resource "azurerm_resource_group" "main" {
-  name     = "example-aks-rds-resources"
-  location = "East US"
+  name     = var.AZURE_RESOURCE_GROUP
+  location = var.AzureDefaultRegion
 }
 
 # Virtual Network
@@ -34,7 +50,7 @@ resource "azurerm_subnet" "postgres_subnet" {
 
 # AKS Cluster
 resource "azurerm_kubernetes_cluster" "aks_cluster" {
-  name                = "example-aks-cluster"
+  name                = var.AksClusterName
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   dns_prefix          = "exampleaks"
