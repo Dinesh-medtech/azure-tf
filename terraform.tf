@@ -45,21 +45,6 @@ resource "azurerm_kubernetes_cluster" "aks_cluster" {
     vm_size    = "Standard_DS2_v2"
     vnet_subnet_id = azurerm_subnet.aks_subnet.id
   }
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  network_profile {
-    network_plugin    = "azure"
-    service_cidr      = "10.0.3.0/24"
-    dns_service_ip    = "10.0.3.10"
-    docker_bridge_cidr = "172.17.0.1/16"
-  }
-
-  tags = {
-    environment = "dev"
-  }
 }
 
 # Azure Database for PostgreSQL Server
@@ -75,12 +60,9 @@ resource "azurerm_postgresql_server" "postgres_server" {
   version            = "12"  # Specify the version you want
   ssl_enforcement    = "Enabled"
   administrator_login = "pgadmin"
-  administrator_login_password = "YourSecurePassword123!"  # Use a strong password
+  administrator_login_password = "YourSecurePassword123!"  
   storage_mb         = 5120  # Size in MB
 
-  tags = {
-    environment = "dev"
-  }
 }
 
 # PostgreSQL Database
@@ -100,4 +82,3 @@ resource "azurerm_postgresql_server_firewall_rule" "allow_aks" {
   start_ip_address    = "10.0.1.0"  # IP of AKS subnet
   end_ip_address      = "10.0.1.255"  # IP range of AKS subnet
 }
-
