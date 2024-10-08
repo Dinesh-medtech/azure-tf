@@ -8,8 +8,7 @@ variable "AzureDefaultRegion" {
   type        = string
 }
 
-variable "AZURE_RESOURCE_GROUP" 
-{
+variable "AZURE_RESOURCE_GROUP" {
   description = "Azure resource group name"
   type        = string
 }
