@@ -1,19 +1,31 @@
-name: Deploy to EKS
+name: Deploy to AKS
 
 on:
   workflow_call:
     inputs:
-      AWSDefaultRegion:
+      AzureDefaultRegion:
         required: false
         type: string
       ProjectName:
         required: false
         type: string
-      EksClusterName :
+      AksClusterName:
         required: false
         type: string
+      AZURE_RESOURCE_GROUP:
+        required: false
+        type: string
+      
     secrets:
-      AwsAcarinOIDCRole:
+      AzureClientId:
+        required: true
+      AzureClientSecret:
+        required: true
+      AzureTenantId:
+        required: true
+      ACR_Username:
+        required: true
+      ACR_Password:
         required: true
       
 jobs:
@@ -24,61 +36,67 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step: Set AWS credentials using OIDC
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      # Step: Log in to Azure
+      - name: Login to Azure
+        uses: azure/login@v1
         with:
-          role-to-assume: ${{ secrets.AwsAcarinOIDCRole }}
-          aws-region: ${{ inputs.AWSDefaultRegion }}
-          role-session-name: "GitHubActions"
+          client-id: ${{ secrets.AzureClientId }}
+          client-secret: ${{ secrets.AzureClientSecret }}
+          tenant-id: ${{ secrets.AzureTenantId }}
 
-      # Step: Log in to Amazon ECR
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      # Step: Log in to Azure Container Registry
+      - name: Login to Azure Container Registry
+        run: |
+          docker login ${{ secrets.ACR_REGISTRY }} --username ${{ secrets.ACR_USERNAME }} --password ${{ secrets.ACR_PASSWORD }}
 
-      - name: Create ECR repository
-        uses: int128/create-ecr-repository-action@v1
-        id: create-ecr-repo
-        with:
-          repository: ${{inputs.ProjectName}}
-          public: false
+      # Step: Create ACR repository (if necessary)
+      - name: Create ACR repository
+        run: |
+          if ! az acr repository show --name ${{ secrets.ACR_REGISTRY }} --repository ${{ inputs.ProjectName }}; then
+              az acr repository create --name ${{ secrets.ACR_REGISTRY }} --repository ${{ inputs.ProjectName }}
+          fi
 
-      - name: Build, tag, and push Docker image to Amazon ECR
+      # Step: Build, tag, and push Docker image to ACR
+      - name: Build, tag, and push Docker image to ACR
         id: build-image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ACR_NAME: ${{ secrets.ACR_USERNAME }}
           IMAGE_TAG: ${{ github.sha }}
-          REPO_NAME: ${{ steps.create-ecr-repo.outputs.repository-uri }}
+          REPO_NAME: ${{ secrets.ACR_REGISTRY }}.azurecr.io/${{ inputs.ProjectName }}
         run: |
-          docker build -f dockerfile -t $REPO_NAME:$IMAGE_TAG .
+          docker build -t $REPO_NAME:$IMAGE_TAG .
           docker push $REPO_NAME:$IMAGE_TAG
           echo "image=$REPO_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      # Step: Set image environment variable
       - name: Set image environment variable
         run: echo "image-uri=${{ steps.build-image.outputs.image }}" >> $GITHUB_ENV
 
+      # Step: Substitute image in deployment.yml
       - name: Substitute image in deployment.yml
         run: |
           cat deployment.yml | envsubst > deployment-subst.yml
 
+      # Step: Set up Terraform
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.4.0 
 
+      # Step: Init, Plan, and Apply Terraform
       - name: Init, Plan, and Apply Terraform
         run: |
           cd terraform
           terraform init
-          terraform plan -var="eks_cluster_name=${{ inputs.EksClusterName }}" -var="aws_region=${{ inputs.AWSDefaultRegion }}"
-          terraform apply -auto-approve -var="eks_cluster_name=${{ inputs.EksClusterName }}" -var="aws_region=${{ inputs.AWSDefaultRegion }}"
+          terraform plan -var="AksClusterName=${{ inputs.AksClusterName }}" -var="AzureDefaultRegion=${{ inputs.AzureDefaultRegion }}" -var="AZURE_RESOURCE_GROUP=${{ inputs.AZURE_RESOURCE_GROUP }}"
+          terraform apply -auto-approve -var="AksClusterName=${{ inputs.AksClusterName }}" -var="AzureDefaultRegion=${{ inputs.AzureDefaultRegion }}" -var="AZURE_RESOURCE_GROUP=${{ inputs.AZURE_RESOURCE_GROUP }}"
           
+      # Step: Configure kubectl
       - name: Configure kubectl
         run: |
-          aws eks update-kubeconfig --name ${{ inputs.EksClusterName }} --region ${{ inputs.AWSDefaultRegion }}
-          
-      - name: Deploy to EKS
+          az aks get-credentials --resource-group ${{ inputs.AZURE_RESOURCE_GROUP }} --name ${{ inputs.AksClusterName }} --overwrite-existing
+
+      # Step: Deploy to AKS
+      - name: Deploy to AKS
         run: |
           kubectl apply -f deployment-subst.yml
-          # kubectl rollout status deployment/my-app
